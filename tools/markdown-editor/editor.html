@@ -174,7 +174,7 @@
         }
 
 .cheatsheet {
-    border: 2px solid #000;
+    border: 2px solid var(--border);
     padding: 10px;
     margin-top: var(--space-lg);
 }
@@ -208,7 +208,7 @@ a {
 }
 
 a:hover {
-    background-color: #000;
+    background-color: var(--text);
     color: #fff;
 }
 
@@ -232,6 +232,8 @@ a:hover {
             }
         }
     </style>
+    
+
 </head>
 <body>
 
@@ -239,7 +241,6 @@ a:hover {
     <button class="dark-mode-toggle" onclick="toggleTheme()" id="themeBtn">DARK MODE</button>
     <h1>Markdown Studio</h1>
     <p>Live editor and previewer. Renders locally.</p>
-</header>
 
 <main class="editor-container">
     <div class="box">
