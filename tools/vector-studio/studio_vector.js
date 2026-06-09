@@ -13,7 +13,8 @@ class VectorEngine {
         this.shapes = []; 
         this.tool = 'select'; 
         this.isDragging = false;
-        this.selection = null; 
+        this.selection = null;
+        this.selections = [];
         this.dragStart = { x: 0, y: 0 };
         this.currentShape = null; 
         
@@ -78,39 +79,37 @@ class VectorEngine {
                 if (Math.sqrt(dx*dx + dy*dy) <= s.r) return s;
             } 
             else if (s.type === 'oval') {
-                // Ellipse equation: (x-h)^2/rx^2 + (y-k)^2/ry^2 <= 1
                 const rx = Math.abs(s.w / 2);
                 const ry = Math.abs(s.h / 2);
                 const h = s.x + s.w / 2;
                 const k = s.y + s.h / 2;
-                if ( ((mx - h)**2 / rx**2) + ((my - k)**2 / ry**2) <= 1 ) return s;
+                if (((mx - h)**2 / rx**2) + ((my - k)**2 / ry**2) <= 1) return s;
             }
             else if (s.type === 'diamond') {
-                // Diamond Vertices
                 const vs = [
-                    {x: s.x + s.w/2, y: s.y},           // Top Mid
-                    {x: s.x + s.w, y: s.y + s.h/2},     // Right Mid
-                    {x: s.x + s.w/2, y: s.y + s.h},     // Bottom Mid
-                    {x: s.x, y: s.y + s.h/2}            // Left Mid
+                    { x: s.x + s.w / 2, y: s.y },
+                    { x: s.x + s.w, y: s.y + s.h / 2 },
+                    { x: s.x + s.w / 2, y: s.y + s.h },
+                    { x: s.x, y: s.y + s.h / 2 }
                 ];
-                if (this.pointInPoly({x:mx, y:my}, vs)) return s;
+                if (this.pointInPoly({ x: mx, y: my }, vs)) return s;
             }
             else if (s.type === 'parallelogram') {
                 const skew = s.w * 0.2;
                 const vs = [
-                    {x: s.x + skew, y: s.y},       // Top Left
-                    {x: s.x + s.w, y: s.y},        // Top Right
-                    {x: s.x + s.w - skew, y: s.y + s.h}, // Bot Right
-                    {x: s.x, y: s.y + s.h}         // Bot Left
+                    { x: s.x + skew, y: s.y },
+                    { x: s.x + s.w, y: s.y },
+                    { x: s.x + s.w - skew, y: s.y + s.h },
+                    { x: s.x, y: s.y + s.h }
                 ];
-                if (this.pointInPoly({x:mx, y:my}, vs)) return s;
+                if (this.pointInPoly({ x: mx, y: my }, vs)) return s;
             }
             else if (s.type === 'line' || s.type === 'arrow') {
-                const d = this.distToSegment({x:mx, y:my}, {x:s.x, y:s.y}, {x:s.ex, y:s.ey});
+                const d = this.distToSegment({ x: mx, y: my }, { x: s.x, y: s.y }, { x: s.ex, y: s.ey });
                 if (d < 10) return s;
             } 
             else if (s.type === 'text') {
-                 if (mx >= s.x && mx <= s.x + (s.text.length * 10) && my >= s.y - 15 && my <= s.y + 5) return s;
+                if (mx >= s.x && mx <= s.x + (s.text.length * 10) && my >= s.y - 15 && my <= s.y + 5) return s;
             }
         }
         return null;
@@ -126,18 +125,35 @@ class VectorEngine {
             if (this.tool === 'select') {
                 const hit = this.hitTest(mx, my);
                 if (hit) {
-                    this.selection = hit;
-                    this.isDragging = true;
-                    // Store offset relative to shape origin
-                    this.dragStart = { x: mx, y: my, ox: hit.x, oy: hit.y };
-                    
-                    if (['line', 'arrow'].includes(hit.type)) {
-                        this.dragStart.oex = hit.ex;
-                        this.dragStart.oey = hit.ey;
+                    if (e.shiftKey || e.ctrlKey) {
+                        // Toggle shape in/out of selections array
+                        const idx = this.selections.indexOf(hit);
+                        if (idx === -1) {
+                            this.selections.push(hit);
+                        } else {
+                            this.selections.splice(idx, 1);
+                        }
+                        this.selection = this.selections[this.selections.length - 1] || null;
+                    } else {
+                        // Normal click — single select
+                        this.selections = [hit];
+                        this.selection = hit;
                     }
+                    this.isDragging = true;
+                    this.dragStart = { x: mx, y: my };
+                    // Store original positions for all selected shapes
+                    this.selections.forEach(s => {
+                        s._ox = s.x;
+                        s._oy = s.y;
+                        if (['line', 'arrow'].includes(s.type)) {
+                            s._oex = s.ex;
+                            s._oey = s.ey;
+                        }
+                    });
                     this.updatePropsUI();
                 } else {
                     this.selection = null;
+                    this.selections = [];
                 }
             } else {
                 // Start Drawing
@@ -159,13 +175,12 @@ class VectorEngine {
                     const text = prompt("Enter text:", "Label");
                     if (text) {
                         this.shapes.push({ type: 'text', x: sx, y: sy, text: text, ...style });
-                        this.saveToLocalStorage(); // Auto-save after adding text
+                        this.saveToLocalStorage();
                         this.tool = 'select';
                         this.updateToolbar();
                         this.isDragging = false;
                     }
                 } else {
-                    // Rect, Oval, Diamond, Parallelogram (Box-based shapes)
                     this.currentShape = { type: this.tool, x: sx, y: sy, w: 0, h: 0, ...style };
                 }
             }
@@ -178,19 +193,18 @@ class VectorEngine {
 
             if (!this.isDragging) return;
 
-            if (this.tool === 'select' && this.selection) {
-                // Drag Selection
+            if (this.tool === 'select' && this.selections.length > 0) {
+                // Drag all selected shapes together
                 const dx = mx - this.dragStart.x;
                 const dy = my - this.dragStart.y;
-                const s = this.selection;
-                
-                s.x = this.snap(this.dragStart.ox + dx);
-                s.y = this.snap(this.dragStart.oy + dy);
-                
-                if (['line', 'arrow'].includes(s.type)) {
-                    s.ex = this.snap(this.dragStart.oex + dx);
-                    s.ey = this.snap(this.dragStart.oey + dy);
-                }
+                this.selections.forEach(s => {
+                    s.x = this.snap(s._ox + dx);
+                    s.y = this.snap(s._oy + dy);
+                    if (['line', 'arrow'].includes(s.type)) {
+                        s.ex = this.snap(s._oex + dx);
+                        s.ey = this.snap(s._oey + dy);
+                    }
+                });
             } 
             else if (this.currentShape) {
                 // Drag Drawing
@@ -205,7 +219,6 @@ class VectorEngine {
                     this.currentShape.ex = sx;
                     this.currentShape.ey = sy;
                 } else {
-                    // Box-based
                     this.currentShape.w = sx - this.currentShape.x;
                     this.currentShape.h = sy - this.currentShape.y;
                 }
@@ -214,8 +227,6 @@ class VectorEngine {
 
         this.canvas.addEventListener('mouseup', () => {
             if (this.currentShape) {
-                // Normalize Box-based shapes (ensure positive width/height if needed, or handle negative in render)
-                // For simplicity, we leave them as is, but ensure 0-size shapes aren't added
                 const s = this.currentShape;
                 let isValid = true;
                 
@@ -225,7 +236,7 @@ class VectorEngine {
                 
                 if (isValid) {
                     this.shapes.push(s);
-                    this.saveToLocalStorage(); // Auto-save after adding shape
+                    this.saveToLocalStorage();
                 }
                 this.currentShape = null;
             }
@@ -235,12 +246,14 @@ class VectorEngine {
         // Properties Listeners
         ['fillColor', 'strokeColor', 'strokeWidth'].forEach(id => {
             document.getElementById(id).addEventListener('change', (e) => {
-                if (this.selection) {
-                    if (id === 'fillColor') this.selection.fill = e.target.value;
-                    if (id === 'strokeColor') this.selection.stroke = e.target.value;
-                    if (id === 'strokeWidth') this.selection.width = parseInt(e.target.value);
-                    this.saveToLocalStorage(); // Auto-save after property change
-                }
+                // Apply to all selected shapes if multi-select, else single
+                const targets = this.selections.length > 0 ? this.selections : (this.selection ? [this.selection] : []);
+                targets.forEach(s => {
+                    if (id === 'fillColor') s.fill = e.target.value;
+                    if (id === 'strokeColor') s.stroke = e.target.value;
+                    if (id === 'strokeWidth') s.width = parseInt(e.target.value);
+                });
+                if (targets.length > 0) this.saveToLocalStorage();
             });
         });
     }
@@ -266,8 +279,8 @@ class VectorEngine {
         this.shapes.forEach(s => this.drawShape(ctx, s));
         if (this.currentShape) this.drawShape(ctx, this.currentShape);
 
-        // Draw Selection
-        if (this.selection) this.drawSelection(ctx, this.selection);
+        // Draw Selection highlights for all selected shapes
+        this.selections.forEach(s => this.drawSelection(ctx, s));
 
         requestAnimationFrame(() => this.loop());
     }
@@ -296,7 +309,6 @@ class VectorEngine {
             ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         } 
         else if (s.type === 'oval') {
-            // Draw Ellipse
             const rx = Math.abs(s.w / 2);
             const ry = Math.abs(s.h / 2);
             const cx = s.x + s.w / 2;
@@ -304,18 +316,18 @@ class VectorEngine {
             ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
         }
         else if (s.type === 'diamond') {
-            ctx.moveTo(s.x + s.w/2, s.y);           // Top
-            ctx.lineTo(s.x + s.w, s.y + s.h/2);     // Right
-            ctx.lineTo(s.x + s.w/2, s.y + s.h);     // Bottom
-            ctx.lineTo(s.x, s.y + s.h/2);           // Left
+            ctx.moveTo(s.x + s.w / 2, s.y);
+            ctx.lineTo(s.x + s.w, s.y + s.h / 2);
+            ctx.lineTo(s.x + s.w / 2, s.y + s.h);
+            ctx.lineTo(s.x, s.y + s.h / 2);
             ctx.closePath();
         }
         else if (s.type === 'parallelogram') {
-            const skew = s.w * 0.2; // 20% skew
-            ctx.moveTo(s.x + skew, s.y);            // Top Left
-            ctx.lineTo(s.x + s.w, s.y);             // Top Right
-            ctx.lineTo(s.x + s.w - skew, s.y + s.h);// Bot Right
-            ctx.lineTo(s.x, s.y + s.h);             // Bot Left
+            const skew = s.w * 0.2;
+            ctx.moveTo(s.x + skew, s.y);
+            ctx.lineTo(s.x + s.w, s.y);
+            ctx.lineTo(s.x + s.w - skew, s.y + s.h);
+            ctx.lineTo(s.x, s.y + s.h);
             ctx.closePath();
         }
         else if (s.type === 'line' || s.type === 'arrow') {
@@ -324,7 +336,6 @@ class VectorEngine {
             ctx.stroke();
             
             if (s.type === 'arrow') {
-                // Draw Arrowhead
                 const angle = Math.atan2(s.ey - s.y, s.ex - s.x);
                 const headLen = 15;
                 ctx.beginPath();
@@ -334,7 +345,7 @@ class VectorEngine {
                 ctx.lineTo(s.ex - headLen * Math.cos(angle + Math.PI / 6), s.ey - headLen * Math.sin(angle + Math.PI / 6));
                 ctx.stroke();
             }
-            return; // Already stroked
+            return;
         } 
         else if (s.type === 'text') {
             ctx.font = `bold 16px Courier New`;
@@ -353,9 +364,7 @@ class VectorEngine {
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
         
-        // Simple bounding box for most shapes
         if (['rect', 'oval', 'diamond', 'parallelogram'].includes(s.type)) {
-            // Handle negative width/height for bounding rect
             const bx = s.w < 0 ? s.x + s.w : s.x;
             const by = s.h < 0 ? s.y + s.h : s.y;
             const bw = Math.abs(s.w);
@@ -366,8 +375,8 @@ class VectorEngine {
             ctx.rect(s.x - s.r - 5, s.y - s.r - 5, s.r * 2 + 10, s.r * 2 + 10);
         }
         else if (['line', 'arrow'].includes(s.type)) {
-            ctx.moveTo(s.x, s.y); ctx.lineTo(s.ex, s.ey);
-            // Draw anchors
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(s.ex, s.ey);
             ctx.fillStyle = '#00ff00';
             ctx.fillRect(s.x - 3, s.y - 3, 6, 6);
             ctx.fillRect(s.ex - 3, s.ey - 3, 6, 6);
@@ -386,29 +395,28 @@ class VectorEngine {
     setTool(name) {
         this.tool = name;
         this.selection = null;
+        this.selections = [];
         this.updateToolbar();
     }
 
     updateToolbar() {
         document.querySelectorAll('.tool').forEach(el => el.classList.remove('active'));
         const active = document.querySelector(`.tool[onclick="app.setTool('${this.tool}')"]`);
-        if(active) active.classList.add('active');
+        if (active) active.classList.add('active');
         this.canvas.style.cursor = this.tool === 'select' ? 'default' : 'crosshair';
     }
 
     updatePropsUI() {
-        if(!this.selection) return;
+        if (!this.selection) return;
         document.getElementById('fillColor').value = this.selection.fill;
         document.getElementById('strokeColor').value = this.selection.stroke;
         document.getElementById('strokeWidth').value = this.selection.width;
     }
 
-    // Check if there are unsaved shapes
     hasUnsavedChanges() {
         return this.shapes && this.shapes.length > 0;
     }
 
-    // Save shapes to localStorage
     saveToLocalStorage() {
         if (this.shapes.length > 0) {
             localStorage.setItem('vector_studio_shapes', JSON.stringify(this.shapes));
@@ -416,7 +424,6 @@ class VectorEngine {
         }
     }
 
-    // Load shapes from localStorage
     loadFromLocalStorage() {
         const savedShapes = localStorage.getItem('vector_studio_shapes');
         if (savedShapes) {
@@ -434,25 +441,30 @@ class VectorEngine {
         return false;
     }
 
-    // Clear localStorage (call when user explicitly clears canvas)
     clearLocalStorage() {
         localStorage.removeItem('vector_studio_shapes');
         console.log('localStorage cleared');
     }
 
     deleteSelected() {
-        if (this.selection) {
+        if (this.selections.length > 0) {
+            this.shapes = this.shapes.filter(s => !this.selections.includes(s));
+            this.selection = null;
+            this.selections = [];
+            this.saveToLocalStorage();
+        } else if (this.selection) {
             this.shapes = this.shapes.filter(s => s !== this.selection);
             this.selection = null;
-            this.saveToLocalStorage(); // Auto-save after deletion
+            this.saveToLocalStorage();
         }
     }
 
     clear() {
-        if(confirm("Clear Canvas?")) {
+        if (confirm("Clear Canvas?")) {
             this.shapes = [];
             this.selection = null;
-            this.clearLocalStorage(); // Clear saved shapes too
+            this.selections = [];
+            this.clearLocalStorage();
         }
     }
 
@@ -475,10 +487,10 @@ class VectorEngine {
                     svg += `<circle cx="${s.x}" cy="${s.y}" r="${s.r}" ${common}/>`;
                 }
                 else if (s.type === 'oval') {
-                    const cx = s.x + s.w/2;
-                    const cy = s.y + s.h/2;
-                    const rx = Math.abs(s.w/2);
-                    const ry = Math.abs(s.h/2);
+                    const cx = s.x + s.w / 2;
+                    const cy = s.y + s.h / 2;
+                    const rx = Math.abs(s.w / 2);
+                    const ry = Math.abs(s.h / 2);
                     svg += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" ${common}/>`;
                 }
                 else if (s.type === 'diamond') {
@@ -494,9 +506,7 @@ class VectorEngine {
                     svg += `<line x1="${s.x}" y1="${s.y}" x2="${s.ex}" y2="${s.ey}" stroke="${s.stroke}" stroke-width="${s.width}"/>`;
                 }
                 else if (s.type === 'arrow') {
-                    // Line
                     svg += `<line x1="${s.x}" y1="${s.y}" x2="${s.ex}" y2="${s.ey}" stroke="${s.stroke}" stroke-width="${s.width}"/>`;
-                    // Arrowhead (simple triangle marker logic would be cleaner in real SVG, but we draw manual path here for simplicity)
                     const angle = Math.atan2(s.ey - s.y, s.ex - s.x);
                     const headLen = 15;
                     const x1 = s.ex - headLen * Math.cos(angle - Math.PI / 6);
@@ -511,7 +521,7 @@ class VectorEngine {
             });
             svg += `</svg>`;
             
-            const blob = new Blob([svg], {type: 'image/svg+xml'});
+            const blob = new Blob([svg], { type: 'image/svg+xml' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
