@@ -135,9 +135,11 @@ class VectorEngine {
                         }
                         this.selection = this.selections[this.selections.length - 1] || null;
                     } else {
-                        // Normal click — single select
-                        this.selections = [hit];
-                        this.selection = hit;
+                        // Normal click — only reset if clicking an unselected shape
+                        if (!this.selections.includes(hit)) {
+                            this.selections = [hit];
+                            this.selection = hit;
+                        }
                     }
                     this.isDragging = true;
                     this.dragStart = { x: mx, y: my };
